@@ -1065,7 +1065,7 @@ audit_1_4_2() {
 sysctl_persistent_value_matches() {
     parameter="$1"
     expected_regex="$2"
-    escaped_parameter="$(printf '%s' "$parameter" | sed 's/\./(\\.|\\/)/g')"
+    escaped_parameter="$(printf '%s' "$parameter" | sed 's#\.#(\\.|/)#g')"
     systemd_sysctl="$(readlink -e /lib/systemd/systemd-sysctl 2>/dev/null || readlink -e /usr/lib/systemd/systemd-sysctl 2>/dev/null)"
     files=()
 
