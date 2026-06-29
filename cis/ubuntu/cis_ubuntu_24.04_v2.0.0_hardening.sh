@@ -2,12 +2,10 @@
 
 set -o pipefail
 
-SCRIPT_NAME="cis_ubuntu_24.04_v2.0.0_audit.sh"
+SCRIPT_NAME="cis_ubuntu_24.04_v2.0.0_hardening.sh"
 DEFAULT_PROFILE="l1-server"
 PROFILE="$DEFAULT_PROFILE"
 SECTION_FILTER=""
-CONTROL_FILTER=""
-EXCLUDE_FILTER=""
 NO_COLOR=0
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -18,7 +16,7 @@ TOTAL_COUNT=0
 print_banner() {
     cat <<'EOF'
 ============================================================
- Script:    cis_ubuntu_24.04_v3.0.0_audit.sh
+ Benchmark: CIS Ubuntu 24.04 v2.0.0
  Author:    Kaiyuann
  Copyright: Copyright (c) 2026 Kaiyuann
  License:   Apache License 2.0
@@ -33,9 +31,7 @@ Usage: $SCRIPT_NAME [options]
 
 Options:
   --profile PROFILE   l1-server, l2-server, l1-workstation, l2-workstation
-  --section LIST      Comma-separated section prefixes to include, e.g. 1,1.1
-  --control LIST      Comma-separated control IDs to include
-  --exclude LIST      Comma-separated control IDs to exclude
+  --section LIST      Comma-separated top-level sections to include, e.g. 1,2,5
   --no-color          Disable colored output
   -h, --help          Show this help
 EOF
@@ -62,24 +58,6 @@ parse_args() {
                 SECTION_FILTER="${1#*=}"
                 shift
                 ;;
-            --control)
-                [ "$#" -ge 2 ] || { printf '%s\n' "ERROR: --control requires a value" >&2; exit 1; }
-                CONTROL_FILTER="$2"
-                shift 2
-                ;;
-            --control=*)
-                CONTROL_FILTER="${1#*=}"
-                shift
-                ;;
-            --exclude)
-                [ "$#" -ge 2 ] || { printf '%s\n' "ERROR: --exclude requires a value" >&2; exit 1; }
-                EXCLUDE_FILTER="$2"
-                shift 2
-                ;;
-            --exclude=*)
-                EXCLUDE_FILTER="${1#*=}"
-                shift
-                ;;
             --no-color)
                 NO_COLOR=1
                 shift
@@ -104,6 +82,8 @@ parse_args() {
             exit 1
             ;;
     esac
+
+    validate_section_filter
 }
 
 require_root() {
@@ -168,14 +148,16 @@ print_summary() {
     printf '%s\n' "============================================================"
     printf 'Profile: %s\n' "$PROFILE"
     [ -n "$SECTION_FILTER" ] && printf 'Section filter: %s\n' "$SECTION_FILTER"
-    [ -n "$CONTROL_FILTER" ] && printf 'Control filter: %s\n' "$CONTROL_FILTER"
-    [ -n "$EXCLUDE_FILTER" ] && printf 'Exclude filter: %s\n' "$EXCLUDE_FILTER"
     printf 'Total:  %s\n' "$TOTAL_COUNT"
     printf '%bPass:%b   %s\n' "$GREEN" "$RESET" "$PASS_COUNT"
     printf '%bFail:%b   %s\n' "$RED" "$RESET" "$FAIL_COUNT"
     printf '%bManual:%b %s\n' "$PURPLE" "$RESET" "$MANUAL_COUNT"
     printf '%bN/A:%b    %s\n' "$BLUE" "$RESET" "$NA_COUNT"
     printf '%s\n' "============================================================"
+}
+
+trim_value() {
+    printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 list_has_value() {
@@ -186,15 +168,14 @@ list_has_value() {
 
     IFS=',' read -r -a items <<< "$list"
     for item in "${items[@]}"; do
-        item="$(printf '%s' "$item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        item="$(trim_value "$item")"
         [ "$item" = "$value" ] && return 0
     done
 
     return 1
 }
 
-section_matches() {
-    local control_id="$1"
+validate_section_filter() {
     local section
     local sections
 
@@ -202,13 +183,25 @@ section_matches() {
 
     IFS=',' read -r -a sections <<< "$SECTION_FILTER"
     for section in "${sections[@]}"; do
-        section="$(printf '%s' "$section" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-        case "$control_id" in
-            "$section"|"$section".*) return 0 ;;
+        section="$(trim_value "$section")"
+        case "$section" in
+            1|2|3|4|5|6|7) ;;
+            *)
+                printf 'ERROR: --section only accepts top-level sections: 1,2,3,4,5,6,7\n' >&2
+                exit 1
+                ;;
         esac
     done
+}
 
-    return 1
+section_matches() {
+    local control_id="$1"
+    local section
+
+    [ -z "$SECTION_FILTER" ] && return 0
+
+    section="${control_id%%.*}"
+    list_has_value "$SECTION_FILTER" "$section"
 }
 
 profile_matches() {
@@ -230,14 +223,6 @@ should_run_control() {
 
     profile_matches "$applicability" || return 1
     section_matches "$control_id" || return 1
-
-    if [ -n "$CONTROL_FILTER" ] && ! list_has_value "$CONTROL_FILTER" "$control_id"; then
-        return 1
-    fi
-
-    if [ -n "$EXCLUDE_FILTER" ] && list_has_value "$EXCLUDE_FILTER" "$control_id"; then
-        return 1
-    fi
 
     return 0
 }
